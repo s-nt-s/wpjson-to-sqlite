@@ -19,29 +19,34 @@ CREATE TABLE posts (
   title TEXT,
   content TEXT,
   date DATETIME,
-  author INTEGER REFERENCES users(ID),
+  author INTEGER,
   type TEXT,
   link TEXT,
-  PRIMARY KEY (ID)
+  PRIMARY KEY (ID),
+  FOREIGN KEY (author) REFERENCES users(ID)
 );
 
 CREATE TABLE tags (
-  post INTEGER REFERENCES posts(ID),
+  post INTEGER,
   tag TEXT,
-  PRIMARY KEY (post, tag)
+  PRIMARY KEY (post, tag),
+  FOREIGN KEY (post) REFERENCES posts(ID)
 );
 
 CREATE TABLE categories (
   ID INTEGER,
   name TEXT,
-  parent INTEGER REFERENCES categories(ID),
-  PRIMARY KEY (ID)
+  parent INTEGER,
+  PRIMARY KEY (ID),
+  FOREIGN KEY (parent) REFERENCES categories(ID)
 );
 
 CREATE TABLE post_category (
-  post INTEGER REFERENCES posts(ID),
-  category INTEGER REFERENCES categories(ID),
-  PRIMARY KEY (post, category)
+  post INTEGER,
+  category INTEGER,
+  PRIMARY KEY (post, category),
+  FOREIGN KEY (post) REFERENCES posts(ID),
+  FOREIGN KEY (category) REFERENCES categories(ID)
 );
 
 /*
