@@ -1,6 +1,9 @@
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS tags;
+DROP TABLE IF EXISTS post_category;
+DROP TABLE IF EXISTS categories;
 DROP TABLE IF EXISTS posts;
+DROP TABLE IF EXISTS media;
 
 CREATE TABLE users (
   ID INTEGER,
@@ -10,6 +13,7 @@ CREATE TABLE users (
   link TEXT,
   PRIMARY KEY (ID)
 );
+
 CREATE TABLE posts (
   ID INTEGER,
   title TEXT,
@@ -24,6 +28,28 @@ CREATE TABLE posts (
 CREATE TABLE tags (
   post INTEGER REFERENCES posts(ID),
   tag TEXT,
-  type INTEGER,
-  PRIMARY KEY (post, tag, type)
+  PRIMARY KEY (post, tag)
 );
+
+CREATE TABLE categories (
+  ID INTEGER,
+  name TEXT,
+  parent INTEGER REFERENCES categories(ID),
+  PRIMARY KEY (ID)
+);
+
+CREATE TABLE post_category (
+  post INTEGER REFERENCES posts(ID),
+  category INTEGER REFERENCES categories(ID),
+  PRIMARY KEY (post, category)
+);
+
+/*
+CREATE TABLE media (
+  ID INTEGER,
+  type TEXT,
+  date TEXT,
+  link TEXT,
+  PRIMARY KEY (id)
+);
+*/
