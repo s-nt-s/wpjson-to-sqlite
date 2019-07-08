@@ -2,20 +2,57 @@ from functools import lru_cache
 
 import requests
 from bunch import Bunch
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
 
+
+def get_targets(url, html):
+    if html and html.strip():
+        soup = BeautifulSoup(html, 'html.parser')
+        for n in soup.findAll(["img", "iframe", "a"]):
+            attr = "href" if n.name == "a" else "src"
+            href = n.attrs.get(attr)
+            if href and not href.startswith("#"):
+                yield urljoin(url, href)
+
+def get_dom(url):
+    p = urlparse(url)
+    dom = p.netloc
+    if dom.startswith("www."):
+        dom=dom[4:]
+    return dom
+
+def secureWP(dom, http="http", **kargv):
+    if not dom.startswith("http"):
+        dom = http + "://" + dom
+    try:
+        return WP(dom, **kargv)
+    except Exception as e:
+        pass
+    try:
+        return WP("www."+dom, **kargv)
+    except Exception as e:
+        pass
+    if http != "https":
+        return secureWP(dom, http="https", **kargv)
+    return None
 
 class WP:
     def __init__(self, url, progress=None):
+        self.last_url = None
         self.url = url
-        if url.endswith("/"):
-            url = url[:1]
-        self.rest_route = url + "/?rest_route="
+        if self.url.endswith("/"):
+            self.url = self.url[:1]
+        self.rest_route = self.url + "/?rest_route="
         self.info = Bunch(**self.get("/"))
         self.progress = progress
+        self.dom = get_dom(self.last_url or self.url)
 
     def get(self, path):
         r = requests.get(self.rest_route+path)
-        return r.json()
+        self.last_url = r.url
+        js = r.json()
+        return js
 
     def get_object(self, tp, size=100, page=1):
         return self.get("/wp/v2/{}/&per_page={}&page={}".format(tp, size, page))
@@ -32,6 +69,31 @@ class WP:
                     print(self.progress.format(tp, len(rs)), end="\r")
             else:
                 return sorted(rs, key=lambda x: x["id"])
+
+    @property
+    @lru_cache(maxsize=None)
+    def targets(self):
+        targets=set()
+        for p in self.posts + self.pages:
+            for target in get_targets(p["link"], p["content"]["rendered"]):
+                targets.add(target)
+        return sorted(targets)
+
+    @property
+    @lru_cache(maxsize=None)
+    def dom_targets(self):
+        doms=set()
+        for t in self.targets:
+            doms.add(get_dom(t))
+        return sorted(doms)
+
+    @property
+    @lru_cache(maxsize=None)
+    def error(self):
+        js = self.get_object("posts", size=1)
+        if "code" in js:
+            return js["code"]
+        return None
 
     @property
     @lru_cache(maxsize=None)

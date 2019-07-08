@@ -1,10 +1,3 @@
-DROP TABLE IF EXISTS users;
-DROP TABLE IF EXISTS tags;
-DROP TABLE IF EXISTS post_category;
-DROP TABLE IF EXISTS categories;
-DROP TABLE IF EXISTS posts;
-DROP TABLE IF EXISTS media;
-
 CREATE TABLE users (
   ID INTEGER,
   name TEXT,
@@ -49,7 +42,6 @@ CREATE TABLE post_category (
   FOREIGN KEY (category) REFERENCES categories(ID)
 );
 
-/*
 CREATE TABLE media (
   ID INTEGER,
   type TEXT,
@@ -57,4 +49,3 @@ CREATE TABLE media (
   link TEXT,
   PRIMARY KEY (id)
 );
-*/

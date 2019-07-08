@@ -2,6 +2,9 @@ import argparse
 import re
 from socket import gaierror, gethostbyname
 from urllib.parse import urlparse
+import requests
+from json.decoder import JSONDecodeError
+
 
 re_url = re.compile(
     r'^https?://'  # http:// or https://
@@ -29,7 +32,7 @@ def get_ip(dom):
         return None
 
 
-class URLcheck:
+class WPcheck:
     def __init__(self, http="http"):
         self.http = http
 
@@ -45,4 +48,14 @@ class URLcheck:
         if not ip:
             raise argparse.ArgumentTypeError(
                 "'{}' no es alcanzable".format(dom))
+        url = value
+        if url.endswith("/"):
+            url = url[:1]
+        url = url + "/?rest_route=/"
+        r = requests.get(url)
+        try:
+            r.json()
+        except JSONDecodeError:
+            raise argparse.ArgumentTypeError(
+                "'{}' no es un blog wordpress o no tiene la api wp-json habilitada".format(dom))
         return value
