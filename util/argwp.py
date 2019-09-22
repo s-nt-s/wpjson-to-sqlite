@@ -52,7 +52,7 @@ class WPcheck:
         if url.endswith("/"):
             url = url[:1]
         url = url + "/?rest_route=/"
-        r = requests.get(url)
+        r = requests.get(url, verify=False)
         try:
             r.json()
         except JSONDecodeError:

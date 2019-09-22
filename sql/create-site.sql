@@ -45,7 +45,21 @@ CREATE TABLE post_category (
 CREATE TABLE media (
   ID INTEGER,
   type TEXT,
-  date TEXT,
+  date DATETIME,
   link TEXT,
   PRIMARY KEY (id)
+);
+
+CREATE TABLE comments (
+  ID INTEGER,
+  post INTEGER,
+  type TEXT,
+  content TEXT,
+  date DATETIME,
+  author INTEGER,
+  parent INTEGER,
+  PRIMARY KEY (id),
+  FOREIGN KEY (post) REFERENCES posts(ID),
+  FOREIGN KEY (author) REFERENCES users(ID),
+  FOREIGN KEY (parent) REFERENCES comments(ID)
 );

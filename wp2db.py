@@ -9,6 +9,8 @@ import sys
 from util.argwp import WPcheck
 from util.db import DBLite
 from util.wpjson import WP, secureWP
+import urllib3
+urllib3.disable_warnings()
 
 me = os.path.realpath(__file__)
 dr = os.path.dirname(me)
@@ -27,7 +29,10 @@ def parse(o, media=False):
             d["link"] = o["source_url"]
     else:
         d["content"] = o["content"]["rendered"].strip()
-        d["title"] = o["title"]["rendered"].strip()
+        d["post"] = o.get("post")
+        d["parent"] = o.get("parent")
+        if "title" in o:
+            d["title"] = o["title"]["rendered"].strip()
     return d
 
 def readfile(file):
@@ -48,10 +53,22 @@ parser.add_argument('--out', type=str, help='Fichero de salida')
 parser.add_argument('--subdom', action='store_true', help='Cargar tambien subdominos')
 parser.add_argument('--tags', action='store_true', help='Guardar tags')
 parser.add_argument('--media', action='store_true', help='Guardar media')
-parser.add_argument('--excluir', nargs='*', help='Excluir algunos subdominios (cuano se usa --subdom)')
+parser.add_argument('--comments', action='store_true', help='Guardar comentarios')
+parser.add_argument('--excluir', nargs='*', help='Excluir post/page de algún dominio. Fromato web:id1,id2 o web si se excluye por completo', default=[])
 parser.add_argument('url', nargs='*', type=WPcheck(), help='URL del wordpress')
 
 arg = parser.parse_args()
+_excluir = {}
+_excluir_dom=set()
+for no in arg.excluir:
+    if ":" not in no:
+        _excluir_dom.add(no)
+    dom, ids = no.split(":")
+    ids = [int(i) for i in ids.split(",")]
+    _excluir[dom]=ids
+arg.excluir = _excluir
+arg.excluir_dom = _excluir_dom
+
 
 if not arg.out and not arg.url:
     sys.exit("Ha de rellenara al menos uno de estos parametros: --out, url")
@@ -76,6 +93,7 @@ wp_error=[]
 main_dom = '.'+arg.url[0].dom
 while arg.url:
     wp = arg.url.pop(0)
+    wp.excluir = arg.excluir.get(wp.id)
     visto.add(wp.dom)
     db.prefix=""
 
@@ -96,7 +114,7 @@ while arg.url:
         continue
 
     print("")
-    print(wp.dom)
+    print(wp.id)
     print("%5s posts" % len(wp.posts))
     print("%5s pages" % len(wp.pages))
     #print("%5s media" % len(wp.media))
@@ -116,11 +134,17 @@ while arg.url:
         total = total + len(wp.media)
     else:
         db.drop("media")
+    if arg.comments:
+        print("%5s comments" % len(wp.comments))
+        total = total + len(wp.comments)
+    else:
+        db.drop("comments")
     count = 0
 
     for u in users:
-        avatar = max(u["avatar_urls"].keys())
-        u["avatar"] = u["avatar_urls"][avatar]
+        if "avatar_urls" in u:
+            avatar = max(u["avatar_urls"].keys())
+            u["avatar"] = u["avatar_urls"][avatar]
         db.insert("users", **u)
         count = count + 1
         print("Creando sqlite {0:.0f}%".format(count*100/total), end="\r")
@@ -145,29 +169,49 @@ while arg.url:
             db.insert("media", **parse(m, media=True))
             count = count + 1
             print("Creando sqlite {0:.0f}%".format(count*100/total), end="\r")
+    if arg.comments:
+        for m in wp.comments:
+            db.insert("comments", **parse(m))
+            count = count + 1
+            print("Creando sqlite {0:.0f}%".format(count*100/total), end="\r")
 
     db.commit()
     print("Creando sqlite 100%")
     if arg.subdom:
         for target in wp.dom_targets:
-            if target not in visto and target not in arg.excluir and target.endswith(main_dom):
+            if target not in visto and target not in arg.excluir_dom and target.endswith(main_dom):
                 target = secureWP(target, progress="{}: {}")
-                if target and target.dom not in visto and target.dom not in arg.excluir:
+                if target and target.dom not in visto and target.dom not in arg.excluir_dom:
                     visto.add(target.dom)
                     arg.url.append(target)
 
 
 for wp in wp_error:
     print("")
-    print(wp.dom)
+    print(wp.id)
     print(" ", wp.error)
 
-view="DROP VIEW IF EXISTS objects;\nCREATE VIEW objects AS"
-for t in sorted(db.tables.keys()):
-    if t.endswith("_posts") or t.endswith("_pages"):
-        view=view+"\nselect *  from "+t+" union"
-view=view[:-6]+";"
-db.execute(view);
+def get_view(*args):
+    for t in sorted(args):
+        if not t.startswith("b") or "_" not in t:
+            continue
+        blog, tb = t.split("_", 1)
+        blog = blog[1:]
+        if not blog.isdigit():
+            continue
+        if tb in ("posts", "pages"):
+            yield t, "objects", blog
+        else:
+            yield t, tb, blog
+
+views={}
+for t, tb, blog in get_view(*db.tables.keys()):
+    view = views.get(tb, "DROP VIEW IF EXISTS {0};\nCREATE VIEW {0} AS".format(tb))
+    views[tb]=view+("\nselect {1} blog, {0}.* from {0} union".format(t, blog))
+for view in views.values():
+    view=view[:-6]+";"
+    db.execute(view);
+
 db.commit()
 db.close()
 

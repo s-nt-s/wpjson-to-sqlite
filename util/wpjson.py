@@ -3,7 +3,7 @@ from functools import lru_cache
 import requests
 from bunch import Bunch
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlencode
 
 
 def get_targets(url, html):
@@ -43,26 +43,35 @@ class WP:
         self.url = url
         if self.url.endswith("/"):
             self.url = self.url[:1]
+        self.id = self.url.split("://", 1)[1]
         self.rest_route = self.url + "/?rest_route="
         self.info = Bunch(**self.get("/"))
         self.progress = progress
         self.dom = get_dom(self.last_url or self.url)
+        self.excluir = None
 
     def get(self, path):
-        r = requests.get(self.rest_route+path)
+        url = self.rest_route+path
+        r = requests.get(url, verify=False)
         self.last_url = r.url
         js = r.json()
         return js
 
-    def get_object(self, tp, size=100, page=1):
-        return self.get("/wp/v2/{}/&per_page={}&page={}".format(tp, size, page))
+    def get_object(self, tp, size=100, page=1, **kargv):
+        url = "/wp/v2/{}/&per_page={}&page={}".format(tp, size, page)
+        if kargv:
+            url = url + "&" + urlencode(kargv, doseq=True)
+        return self.get(url)
 
-    def get_all_objects(self, tp, size=100):
+    def get_all_objects(self, tp, size=100, **kargv):
+        if tp in ("pages", "posts") and self.excluir:
+            key = "exclude" if len(self.excluir)==1 else "exclude[]"
+            kargv[key]=self.excluir
         rs = []
         page = 0
         while True:
             page = page + 1
-            r = self.get_object(tp, size=size, page=page)
+            r = self.get_object(tp, size=size, page=page, **kargv)
             if isinstance(r, list) and len(r) > 0:
                 rs.extend(r)
                 if self.progress:
@@ -109,6 +118,11 @@ class WP:
     @lru_cache(maxsize=None)
     def media(self):
         return self.get_all_objects("media")
+
+    @property
+    @lru_cache(maxsize=None)
+    def comments(self):
+        return self.get_all_objects("comments")
 
     @property
     @lru_cache(maxsize=None)
