@@ -73,13 +73,13 @@ def main(arg):
         visto.add(wp.dom)
         db.prefix=""
 
-        blog_id = db.select("select id from blogs where url='%s'" % wp.url, to_one=True)
+        blog_id = db.select("select id from blogs where url='%s'" % wp.id, to_one=True)
         if blog_id:
             db.prefix = "b%d_" % blog_id
             db.drop()
         else:
             blog_id = db.select("select IFNULL(max(id),0)+1 from blogs", to_one=True)
-            db.insert("blogs", id=blog_id, name=wp.info.name, url=wp.url)
+            db.insert("blogs", id=blog_id, name=wp.info.name, url=wp.id)
             db.prefix = "b%d_" % blog_id
 
         script = get_create(blog_id)

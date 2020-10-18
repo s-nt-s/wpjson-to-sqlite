@@ -48,13 +48,14 @@ class WPcheck:
         if not ip:
             raise argparse.ArgumentTypeError(
                 "'{}' no es alcanzable".format(dom))
-        url = value
-        if url.endswith("/"):
-            url = url[:1]
+        url = value.rstrip("/")
         url = url + "/?rest_route=/"
         r = requests.get(url, verify=False)
         try:
-            r.json()
+            js = r.json()
+            if js.get('code') == 'rest_cannot_access':
+                raise argparse.ArgumentTypeError(
+                    "'{}' no permite acceso a la api wp-json [{}: {}]".format(dom, js['code'], js['message']))
         except JSONDecodeError:
             raise argparse.ArgumentTypeError(
                 "'{}' no es un blog wordpress o no tiene la api wp-json habilitada".format(dom))

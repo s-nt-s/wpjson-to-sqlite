@@ -40,9 +40,7 @@ def secureWP(dom, http="http", **kargv):
 class WP:
     def __init__(self, url, progress=None):
         self.last_url = None
-        self.url = url
-        if self.url.endswith("/"):
-            self.url = self.url[:1]
+        self.url = url.rstrip("/")
         self.id = self.url.split("://", 1)[1]
         self.rest_route = self.url + "/?rest_route="
         self.info = Bunch(**self.get("/"))
@@ -101,7 +99,7 @@ class WP:
     def error(self):
         js = self.get_object("posts", size=1)
         if "code" in js:
-            return js["code"]
+            return js["code"] + " " + self.last_url
         return None
 
     @property
