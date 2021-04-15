@@ -50,7 +50,11 @@ class WPcheck:
                 "'{}' no es alcanzable".format(dom))
         url = value.rstrip("/")
         url = url + "/?rest_route=/"
-        r = requests.get(url, verify=False)
+        try:
+            r = requests.get(url, verify=False)
+        except:
+            print(url)
+            raise
         try:
             js = r.json()
             if js.get('code') == 'rest_cannot_access':

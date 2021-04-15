@@ -50,7 +50,11 @@ class WP:
 
     def get(self, path):
         url = self.rest_route+path
-        r = requests.get(url, verify=False)
+        try:
+            r = requests.get(url, verify=False)
+        except:
+            print(url)
+            raise
         self.last_url = r.url
         js = r.json()
         return js

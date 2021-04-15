@@ -202,7 +202,7 @@ if __name__ == "__main__":
     parser.add_argument('--tags', action='store_true', help='Guardar tags')
     parser.add_argument('--media', action='store_true', help='Guardar media')
     parser.add_argument('--comments', action='store_true', help='Guardar comentarios')
-    parser.add_argument('--excluir', nargs='*', help='Excluir post/page de algún dominio. Fromato web:id1,id2 o web si se excluye por completo', default=[])
+    parser.add_argument('--excluir', nargs='*', help='Excluir post/page de algún dominio. Formato web:id1,id2 o web si se excluye por completo', default=[])
     parser.add_argument('url', nargs='*', type=WPcheck(), help='URL del wordpress')
 
     arg = parser.parse_args()
