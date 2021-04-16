@@ -1,113 +1,268 @@
 import os
 import re
 import sqlite3
-from subprocess import DEVNULL, STDOUT, check_call
+from textwrap import dedent
+from PIL import Image
 
+import unidecode
 import yaml
 from bunch import Bunch
+from datetime import datetime
+from subprocess import DEVNULL, STDOUT, check_call
+import tempfile
+from urllib.request import urlretrieve
 
-re_select = re.compile(r"^\s*select\b")
+re_sp = re.compile(r"\s+")
+
+sqlite3.register_converter("BOOLEAN", lambda x: int(x) > 0)
+#sqlite3.register_converter("DATE", lambda x: datetime.strptime(str(x), "%Y-%m-%d").date())
+sqlite3.enable_callback_tracebacks(True)
+
+def dict_factory(cursor, row):
+    d = {}
+    for idx, col in enumerate(cursor.description):
+        d[col[0]] = row[idx]
+    return d
+
+def bunch_factory(cursor, row):
+    d = dict_factory(cursor, row)
+    return Bunch(**d)
+
+def one_factory(cursor, row):
+    return row[0]
+
+def ResultIter(cursor, size=1000):
+    while True:
+        results = cursor.fetchmany(size)
+        if not results:
+            break
+        for result in results:
+            yield result
+
+def save(file, content):
+    if file and content:
+        content = dedent(content).strip()
+        with open(file, "w") as f:
+            f.write(content)
 
 
-def build_result(c, to_tuples=False, to_bunch=False, to_one=False):
-    results = c.fetchall()
-    if len(results) == 0:
-        return None if to_one else results
-    if isinstance(results[0], tuple) and len(results[0]) == 1:
-        results = [a[0] for a in results]
-        return results[0] if to_one else results
-    if to_tuples:
-        return results
-    if to_one:
-        return results[0]
-    cols = [(i, col[0]) for i, col in enumerate(c.description)]
-    n_results = []
-    for r in results:
-        d = {}
-        for i, col in cols:
-            d[col] = r[i]
-        if to_bunch:
-            d = Bunch(**d)
-        n_results.append(d)
-    return n_results
+class CaseInsensitiveDict(dict):
+    def __setitem__(self, key, value):
+        dict.__setitem__(self, key.lower(), value)
 
+    def __getitem__(self, key):
+        return dict.__getitem__(self, key.lower())
+
+    def do_null(self):
+        for k in self.keys():
+            self[k]=None
+
+    def rm_null(self):
+        for k, v in list(self.items()):
+            if v is None:
+                del self[k]
 
 class DBLite:
-    def __init__(self, file):
+    def __init__(self, file, readonly=False, overwrite=False):
         self.file = file
-        self.con = sqlite3.connect(file)
-        self.cursor = self.con.cursor()
-        self.prefix = ""
-        self.tables = {}
+        if overwrite and os.path.isfile(file):
+            os.remove(file)
+        self.readonly = readonly
+        if self.readonly:
+            file = "file:"+self.file+"?mode=ro"
+            self.con = sqlite3.connect(
+                file, detect_types=sqlite3.PARSE_DECLTYPES, uri=True)
+        else:
+            self.con = sqlite3.connect(
+                self.file, detect_types=sqlite3.PARSE_DECLTYPES)
+        self.tables = CaseInsensitiveDict()
         self.load_tables()
+        self.inTransaction = False
 
-    def execute(self, sql):
+    def openTransaction(self):
+        if self.inTransaction:
+            self.con.execute("END TRANSACTION")
+        self.con.execute("BEGIN TRANSACTION")
+        self.inTransaction = True
+
+    def closeTransaction(self):
+        if self.inTransaction:
+            self.con.execute("END TRANSACTION")
+            self.inTransaction = False
+
+    def execute(self, sql, to_file=None):
         if os.path.isfile(sql):
-            with open(sql, 'r') as f:
-                sql = f.read()
-        self.cursor.executescript(sql)
-        self.con.commit()
-        if "CREATE TABLE" in sql.upper():
+            with open(sql, 'r') as schema:
+                sql = schema.read()
+        if sql.strip():
+            save(to_file, sql)
+            self.con.executescript(sql)
+            self.con.commit()
             self.load_tables()
 
-    def load_tables(self):
-        self.tables = {}
-        for t in self.select("SELECT name FROM sqlite_master WHERE type='table'"):
-            self.cursor.execute("select * from "+t+" limit 0")
-            self.tables[t] = tuple(col[0] for col in self.cursor.description)
+    def get_cols(self, sql):
+        cursor = self.con.cursor()
+        cursor.execute(sql)
+        cols = tuple(col[0] for col in cursor.description)
+        cursor.close()
+        return cols
 
-    def insert(self, table, **kargv):
-        table = self.prefix + table
-        ok_keys = [k.upper() for k in self.tables[table]]
+
+    def load_tables(self):
+        self.tables.do_null()
+        for t in self.to_list("SELECT name FROM sqlite_master WHERE type = 'table'"):
+            try:
+                self.tables[t] = self.get_cols("select * from "+t+" limit 0")
+            except:
+                pass
+        self.tables.rm_null()
+
+    def insert(self, table, insert_or=None, **kargv):
+        sobra = {}
+        ok_keys = self.tables[table]
         keys = []
         vals = []
         for k, v in kargv.items():
-            if k.upper() in ok_keys and v is not None and not(isinstance(v, str) and len(v) == 0):
-                keys.append(k)
-                vals.append(v)
-        sql = "insert into %s (%s) values (%s)" % (
-            table, ", ".join(keys), ("?," * len(vals))[:-1])
-        self.cursor.execute(sql, vals)
+            if v is None:
+                continue
+            if isinstance(v, str):
+                v = v.strip()
+                if len(v)==0:
+                    continue
+            _k = "_" + k
+            if k not in ok_keys and _k in ok_keys and _k not in kargv:
+                k = _k
+            if k not in ok_keys:
+                sobra[k] = v
+                continue
+            keys.append('"'+k+'"')
+            vals.append(v)
+        prm = ['?']*len(vals)
+        sql = "insert or "+insert_or if insert_or else "insert"
+        sql = sql+" into %s (%s) values (%s)" % (
+            table, ', '.join(keys), ', '.join(prm))
+        try:
+            self.con.execute(sql, vals)
+        except sqlite3.InterfaceError:
+            print(sql)
+            print(vals)
+            raise
+        return sobra
+
+    def update(self, table, **kargv):
+        sobra = {}
+        ok_keys = self.tables[table]
+        keys = []
+        vals = []
+        sql_set = []
+        id = None
+        for k, v in kargv.items():
+            if v is None:
+                continue
+            if isinstance(v, str):
+                v = v.strip()
+                if len(v)==0:
+                    continue
+            _k = "_" + k
+            if k not in ok_keys and _k in ok_keys and _k not in kargv:
+                k = _k
+            if k not in ok_keys:
+                sobra[k] = v
+                continue
+            if k.lower() == "id":
+                id = v
+                continue
+            sql_set.append(k+' = ?')
+            vals.append(v)
+        vals.append(id)
+        sql = "update %s set %s where id = ?" % (
+            table, ', '.join(sql_set))
+        self.con.execute(sql, vals)
+        return sobra
+
+    def _build_select(self, sql):
+        sql = sql.strip()
+        if not sql.lower().startswith("select"):
+            field = "*"
+            if "." in sql:
+                sql, field = sql.rsplit(".", 1)
+            sql = "select "+field+" from "+sql
+        return sql
 
     def commit(self):
         self.con.commit()
 
-    def close(self):
+    def close(self, vacuum=True):
+        if self.readonly:
+            self.con.close()
+            return
+        self.closeTransaction()
         self.con.commit()
-        c = self.con.execute("pragma integrity_check")
-        c = c.fetchone()
-        print("integrity_check =", *c)
-        self.con.execute("VACUUM")
+        if vacuum:
+            c = self.con.execute("pragma integrity_check")
+            c = c.fetchone()
+            print("integrity_check =", *c)
+            self.con.execute("VACUUM")
         self.con.commit()
         self.con.close()
 
-    def select(self, sql, **kargv):
-        sql = sql.strip()
-        if not sql.lower().startswith("select"):
-            sql = self.prefix + sql
-            sql = "select * from "+sql
-        self.cursor.execute(sql)
-        r = build_result(self.cursor, **kargv)
+    def select(self, sql, *args, row_factory=None, **kargv):
+        sql = self._build_select(sql)
+        self.con.row_factory=row_factory
+        cursor = self.con.cursor()
+        if args:
+            cursor.execute(sql, args)
+        else:
+            cursor.execute(sql)
+        for r in ResultIter(cursor):
+            yield r
+        cursor.close()
+        self.con.row_factory=None
+
+    def to_list(self, *args, **kargv):
+        r=[]
+        flag=False
+        for i in self.select(*args, **kargv):
+            flag = flag or (isinstance(i, tuple) and len(i)==1)
+            if flag:
+                i = i[0]
+            r.append(i)
+        return r
+
+    def one(self, sql, *args, row_factory=None):
+        sql = self._build_select(sql)
+        self.con.row_factory=row_factory
+        cursor = self.con.cursor()
+        if args:
+            cursor.execute(sql, args)
+        else:
+            cursor.execute(sql)
+        r = cursor.fetchone()
+        cursor.close()
+        self.con.row_factory=None
+        if not r:
+            return None
+        if row_factory is None and len(r)==1:
+            return r[0]
         return r
 
     def get_sql_table(self, table):
-        table = self.prefix + table
         sql = "SELECT sql FROM sqlite_master WHERE type='table' AND name=?"
-        self.cursor.execute(sql, (table,))
-        sql = self.cursor.fetchone()[0]
+        cursor = self.con.cursor()
+        cursor.execute(sql, (table,))
+        sql = cursor.fetchone()[0]
+        cursor.close()
         return sql
 
     def drop(self, *tables):
-        self.cursor.execute("begin")
-        if len(tables)>0:
-            for t in tables:
-                t = self.prefix + t
-                self.cursor.execute("drop table "+t)
-        else:
-            for t in self.tables:
-                if t.startswith(self.prefix):
-                    self.cursor.execute("drop table "+t)
-        self.cursor.execute("commit")
+        cursor = self.con.cursor()
+        cursor.execute("begin")
+        for t in tables:
+            tp = self.one("SELECT type FROM sqlite_master WHERE name = ? and type in ('table', 'view')", t)
+            if tp is not None:
+                cursor.execute("drop {} {}".format(tp, t))
+        cursor.execute("commit")
+        cursor.close()
         self.load_tables()
 
     def size(self, file=None, suffix='B'):
@@ -119,11 +274,22 @@ class DBLite:
             num /= 1024.0
         return ("%.1f%s%s" % (num, 'Yi', suffix))
 
-    def zip(self, zip=None):
+    def zip(self, zip=None, file=None):
+        if file is None:
+            file = self.file
         if zip is None:
             zip = os.path.splitext(self.file)[0]+".7z"
         if os.path.isfile(zip):
             os.remove(zip)
-        cmd = "7z a %s %s" % (zip, self.file)
+        dir = os.path.dirname(zip)
+        if dir:
+            os.makedirs(dir, exist_ok=True)
+        cmd = "7z a %s ./%s" % (zip, file)
         check_call(cmd.split(), stdout=DEVNULL, stderr=STDOUT)
         return self.size(zip)
+
+    def find_cols(self, *cols):
+        for t, cls in self.tables.items():
+            for c in cols:
+                if c in cls:
+                    yield (t, c)

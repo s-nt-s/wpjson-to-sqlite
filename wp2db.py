@@ -5,18 +5,15 @@ import os
 from datetime import datetime, date
 import re
 import sys
-
-from util.argwp import WPcheck
-from util.db import DBLite
-from util.wpjson import WP, secureWP
 from shutil import copyfile
 import urllib3
+from os.path import basename, dirname, join
+
+from util.argwp import WPcheck
+from util.dbwp import DBwp
+from util.wpjson import WP, secureWP
 
 urllib3.disable_warnings()
-
-me = os.path.realpath(__file__)
-dr = os.path.dirname(me)
-
 
 def parse(o, media=False):
     d = {k: v for k, v in o.items() if k in (
@@ -37,40 +34,6 @@ def parse(o, media=False):
             d["title"] = o["title"]["rendered"].strip()
     return d
 
-def readfile(file):
-    with open(file, "r") as f:
-        return f.read().strip()
-
-create_site = readfile(dr+"/sql/create-site.sql")
-site_tables = re.findall(r"create\s+table\s+(\S+)\s*\(", create_site, flags=re.IGNORECASE)
-site_tables = sorted(set(site_tables), key=lambda x:site_tables.index(x))
-re_site_tables = re.compile(r"\b("+"|".join(site_tables)+r")\b", re.IGNORECASE)
-
-def get_create(blog_id):
-    return re_site_tables.sub(("b%d_" % blog_id) + r"\1", create_site)
-
-def get_view(*args):
-    for t in sorted(args):
-        if not t.startswith("b") or "_" not in t:
-            continue
-        blog, tb = t.split("_", 1)
-        blog = blog[1:]
-        if not blog.isdigit():
-            continue
-        if tb in ("posts", "pages"):
-            yield t, "objects", blog
-        else:
-            yield t, tb, blog
-
-def set_view(db):
-    views={}
-    for t, tb, blog in get_view(*db.tables.keys()):
-        view = views.get(tb, "DROP VIEW IF EXISTS {0};\nCREATE VIEW {0} AS".format(tb))
-        views[tb]=view+("\nselect {1} blog, {0}.* from {0} union".format(t, blog))
-    for view in views.values():
-        view=view[:-6]+";"
-        db.execute(view)
-
 def main(arg):
     if arg.url:
         arg.url = [WP(url, progress="{}: {}") for url in arg.url]
@@ -79,11 +42,9 @@ def main(arg):
         arg.out = arg.url[0].info.name.lower().replace(" ", "_")+".db"
     print(">>>", arg.out)
 
-    db = DBLite(arg.out)
-    if "blogs" not in db.tables:
-        db.execute(dr+"/sql/create-ms.sql")
+    db = DBwp(arg.out)
     if not arg.url:
-        arg.url = [secureWP(url, progress="{}: {}") for url in db.select("select url from blogs order by id")]
+        arg.url = [secureWP(url, progress="{}: {}") for url in db.to_list("select url from blogs order by id")]
         arg.url = [wp for wp in arg.url if wp is not None]
         if not arg.url:
             sys.exit(arg.out+" no contiene blogs")
@@ -95,19 +56,8 @@ def main(arg):
         wp = arg.url.pop(0)
         wp.excluir = arg.excluir.get(wp.id)
         visto.add(wp.dom)
-        db.prefix=""
 
-        blog_id = db.select("select id from blogs where url='%s'" % wp.id, to_one=True)
-        if blog_id:
-            db.prefix = "b%d_" % blog_id
-            db.drop()
-        else:
-            blog_id = db.select("select IFNULL(max(id),0)+1 from blogs", to_one=True)
-            db.insert("blogs", id=blog_id, name=wp.info.name, url=wp.id)
-            db.prefix = "b%d_" % blog_id
-
-        script = get_create(blog_id)
-        db.execute(script)
+        db.mk_blog(wp)
 
         if wp.error:
             wp_error.append(wp)
@@ -185,13 +135,12 @@ def main(arg):
                         visto.add(target.dom)
                         arg.url.append(target)
 
-
     for wp in wp_error:
         print("")
         print(wp.id)
         print(" ", wp.error)
 
-    set_view(db)
+    db.set_view()
     db.commit()
     db.close()
 
@@ -199,41 +148,13 @@ def main(arg):
     print("Tamaño: "+db.size())
 
     if arg.zip:
-        new_out = os.path.join(os.path.dirname(db.file), date.today().strftime("%Y.%m.%d")+"_"+os.path.basename(db.file))
-        copyfile(db.file, new_out)
-        db = DBLite(new_out)
-        for v in db.select("SELECT name FROM sqlite_master WHERE type='view'"):
-            db.execute("DROP VIEW "+v)
-        count_blog = ["select count(*) C from b{ID}_"+t for t in site_tables]
-        count_blog = " union ".join(count_blog)
-        count_blog = "select sum(C) from ("+count_blog+")"
-        for r in db.select("select ID, name, url from blogs"):
-            ct_blog = db.select(count_blog.format(**r), to_one=True)
-            if ct_blog == 0:
-                print("Blog {url} vacio será borrado".format(**r))
-                db.prefix = "b%d_" % r["ID"]
-                db.drop(*site_tables)
-                db.execute("delete from blogs where ID="+str(r["ID"]))
-
-        db.prefix = ""
-        ct_blog = db.select("select count(*) from blogs", to_one=True)
-        if ct_blog<2:
-            blog_id = db.select("select ID from blogs", to_one=True)
-            prefix = "b%d_" % blog_id
-            db.execute(create_site)
-            for t in site_tables:
-                db.execute("insert into {0} select * from {1}{0}".format(t,prefix))
-            for t in site_tables:
-                db.drop(prefix+t)
-                count = db.select("select count(*) from "+t, to_one=True)
-                if count == 0:
-                    print("Tabla {} vacia será borrada".format(t))
-                    db.drop(t)
-            db.drop("blogs")
-        else:
-            set_view(db)
+        new_out = join(dirname(arg.out), date.today().strftime("%Y.%m.%d")+"_"+basename(arg.out))
+        zip = arg.out.rsplit(".", 1)[0]+".7z"
+        copyfile(arg.out, new_out)
+        db = DBwp(new_out)
+        db.minimize()
         db.close()
-        print("Tamaño comprimido: "+db.zip())
+        print("Tamaño comprimido: "+db.zip(zip=zip))
         os.remove(new_out)
 
 if __name__ == "__main__":
