@@ -2,7 +2,7 @@ import argparse
 import re
 from socket import gaierror, gethostbyname
 from urllib.parse import urlparse
-import requests
+from .wpjson import get_requests
 from json.decoder import JSONDecodeError
 
 
@@ -50,11 +50,7 @@ class WPcheck:
                 "'{}' no es alcanzable".format(dom))
         url = value.rstrip("/")
         url = url + "/?rest_route=/"
-        try:
-            r = requests.get(url, verify=False)
-        except:
-            print(url)
-            raise
+        r = get_requests(url)
         try:
             js = r.json()
             if js.get('code') == 'rest_cannot_access':

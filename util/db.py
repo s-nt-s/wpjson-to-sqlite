@@ -74,7 +74,9 @@ class DBLite:
 
     def close(self):
         self.con.commit()
-        self.cursor.close()
+        c = self.con.execute("pragma integrity_check")
+        c = c.fetchone()
+        print("integrity_check =", *c)
         self.con.execute("VACUUM")
         self.con.commit()
         self.con.close()
@@ -117,8 +119,9 @@ class DBLite:
             num /= 1024.0
         return ("%.1f%s%s" % (num, 'Yi', suffix))
 
-    def zip(self):
-        zip = os.path.splitext(self.file)[0]+".7z"
+    def zip(self, zip=None):
+        if zip is None:
+            zip = os.path.splitext(self.file)[0]+".7z"
         if os.path.isfile(zip):
             os.remove(zip)
         cmd = "7z a %s %s" % (zip, self.file)

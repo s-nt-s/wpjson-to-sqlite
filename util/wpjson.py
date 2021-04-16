@@ -4,7 +4,29 @@ import requests
 from bunch import Bunch
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse, urlencode
+from simplejson.errors import JSONDecodeError
+import json
 
+default_headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:54.0) Gecko/20100101 Firefox/54.0',
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "Expires": "Thu, 01 Jan 1970 00:00:00 GMT",
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'DNT': '1',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+}
+
+
+def get_requests(url, verify=False):
+    try:
+        return requests.get(url, verify=verify, headers=default_headers)
+    except:
+        print(url)
+        raise
 
 def get_targets(url, html):
     if html and html.strip():
@@ -13,7 +35,10 @@ def get_targets(url, html):
             attr = "href" if n.name == "a" else "src"
             href = n.attrs.get(attr)
             if href and not href.startswith("#"):
-                yield urljoin(url, href)
+                try:
+                    yield urljoin(url, href)
+                except ValueError:
+                    pass
 
 def get_dom(url):
     p = urlparse(url)
@@ -23,16 +48,22 @@ def get_dom(url):
     return dom
 
 def secureWP(dom, http="http", **kargv):
-    if not dom.startswith("http"):
-        dom = http + "://" + dom
+    slp = dom.split("://", 1)
+    if len(slp)==2:
+        pro = slp[0].lower()
+        url = slp[1]
+        return secureWP(url, http=pro, **kargv)
+    if http not in ("http", "https"):
+        raise Exception("Protocolo no admitido "+http)
     try:
-        return WP(dom, **kargv)
+        return WP(http + "://" + dom, **kargv)
     except Exception as e:
         pass
-    try:
-        return WP("www."+dom, **kargv)
-    except Exception as e:
-        pass
+    if not dom.startswith("www."):
+        try:
+            return WP(http + "://www." + dom, **kargv)
+        except Exception as e:
+            pass
     if http != "https":
         return secureWP(dom, http="https", **kargv)
     return None
@@ -50,13 +81,24 @@ class WP:
 
     def get(self, path):
         url = self.rest_route+path
+        r = get_requests(url)
+        self.last_url = r.url
         try:
-            r = requests.get(url, verify=False)
+            js = r.json()
+        except JSONDecodeError:
+            if r.text and "[" in r.text:
+                error, js = r.text.split("[", 1)
+                try:
+                    js = json.loads("["+js.strip())
+                    print(url, "->", error.strip())
+                    return js
+                except:
+                    pass
+            print(url)
+            raise
         except:
             print(url)
             raise
-        self.last_url = r.url
-        js = r.json()
         return js
 
     def get_object(self, tp, size=100, page=1, **kargv):
