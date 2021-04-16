@@ -110,7 +110,7 @@ class DBwp(DBLite):
                 self.rm_blog(r["ID"])
 
         ct_blog = self.one("select count(*) from blogs")
-        if ct_blog<2:
+        if ct_blog==1:
             for v in self.to_list("SELECT name FROM sqlite_master WHERE type='view'"):
                 self.drop(v)
             blog_id = self.one("select ID from blogs")
@@ -124,5 +124,7 @@ class DBwp(DBLite):
                 if count == 0:
                     print("Tabla {} vacia será borrada".format(t))
                     self.drop(t)
+        ct_blog = self.one("select count(*) from blogs")
+        if ct_blog<2:
             self.drop("blogs")
         self.set_view()
