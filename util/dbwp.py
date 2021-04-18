@@ -45,27 +45,28 @@ class DBwp(DBLite):
         self.blog_id = self.one("select id from blogs where url=?", wp.id)
         if self.blog_id is None:
             self.blog_id = self.one("select IFNULL(max(id),0)+1 from blogs")
-        self.insert("blogs", insert_or="replace", id=self.blog_id, name=wp.info.name, url=wp.id)
-        self.execute(self.create_blog)
+        self.insert("blogs", id=self.blog_id, name=wp.info.name, url=wp.id)
+        prefix = self.get_prefix()
+        sql = self.re_site_tables.sub(prefix + r"\1", self.create_site)
+        self.execute(sql)
 
-    def rm_blog(self, blog_id):
-        self.blog_id = blog_id
+    def rm_blog(self, blog_id=None):
+        bk_blog_id = None
+        if blog_id is not None:
+            bk_blog_id = self.blog_id
+            self.blog_id = blog_id
+        if self.blog_id is None:
+            raise Exception("blog_id is None")
         self.drop(*self.site_tables)
         self.execute("delete from blogs where ID="+str(self.blog_id))
-        self.blog_id = None
+        self.blog_id = bk_blog_id
 
-    @property
-    def create_blog(self):
-        if self.blog_id is None:
+    def get_prefix(self, blog_id=None):
+        if blog_id is None:
+            blog_id = self.blog_id
+        if blog_id is None:
             raise Exception("blog_id is None")
-        sql = self.re_site_tables.sub(self.prefix + r"\1", self.create_site)
-        return sql
-
-    @property
-    def prefix(self):
-        if self.blog_id is None:
-            raise Exception("blog_id is None")
-        return "b%d_" % self.blog_id
+        return "b%d_" % blog_id
 
     def set_blod_id(self, id):
         if isinstance(id, str):
@@ -74,22 +75,45 @@ class DBwp(DBLite):
             self.blog_id = id
         return self.blog_id
 
-    def parse_table(self, table):
-        if table!="blogs" and self.blog_id and not table.startswith(self.prefix):
-            table = self.prefix+table
+    def parse_table(self, table, blog_id=None):
+        if table in self.tables or table not in self.site_tables :
+            return table
+        if blog_id is None:
+            blog_id = self.blog_id
+        if blog_id is None:
+            raise Exception("blog_id is None")
+        prefix = self.get_prefix(blog_id)
+        table = prefix+table
         return table
 
-    def insert(self, table, *args, **kargv):
-        super().insert(self.parse_table(table), *args, **kargv)
+    def count_blog(self, blog_id=None):
+        if blog_id is None:
+            blog_id = self.blog_id
+        if blog_id is None:
+            raise Exception("blog_id is None")
+        self.load_tables()
+        tbs={}
+        for t in self.site_tables:
+            t = self.parse_table(t, blog_id)
+            if t in self.tables:
+                tbs[t]=self.one("select count(*) from "+t)
+        return tbs
+
+    def insert(self, table, *args, insert_or="replace", **kargv):
+        super().insert(self.parse_table(table), *args, insert_or=insert_or, **kargv)
 
     def drop(self, *tables):
         tables = (self.parse_table(t) for t in tables)
         super().drop(*tables)
 
+    def rm_views(self):
+        for v in self.to_list("SELECT name FROM sqlite_master WHERE type='view'"):
+            self.execute("DROP VIEW "+v)
+
+
     def set_view(self):
         self.blog_id = None
-        for v in self.to_list("SELECT name FROM sqlite_master WHERE type='view'"):
-            self.drop(v)
+        self.rm_views()
         views={}
         for t, tb, blog in get_view(*self.tables.keys()):
             view = views.get(tb, "CREATE VIEW {0} AS".format(tb))
@@ -100,21 +124,17 @@ class DBwp(DBLite):
 
     def minimize(self):
         self.blog_id = None
-        count_blog = ["select count(*) C from b{ID}_"+t for t in self.site_tables]
-        count_blog = " union ".join(count_blog)
-        count_blog = "select sum(C) from ("+count_blog+")"
-        for r in self.select("select ID, name, url from blogs", row_factory=dict_factory):
-            ct_blog = self.one(count_blog.format(**r))
+        for r in self.select("select * from blogs", row_factory=dict_factory):
+            ct_blog = sum(self.count_blog(r["ID"]).values())
             if ct_blog == 0:
                 print("Blog {url} vacio será borrado".format(**r))
                 self.rm_blog(r["ID"])
 
         ct_blog = self.one("select count(*) from blogs")
         if ct_blog==1:
-            for v in self.to_list("SELECT name FROM sqlite_master WHERE type='view'"):
-                self.drop(v)
+            self.rm_views()
             blog_id = self.one("select ID from blogs")
-            prefix = "b%d_" % blog_id
+            prefix = self.get_prefix(blog_id)
             self.execute(self.create_site)
             for t in site_tables:
                 self.execute("insert into {0} select * from {1}{0}".format(t, prefix))

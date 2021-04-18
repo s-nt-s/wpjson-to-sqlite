@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse, urlencode
 from simplejson.errors import JSONDecodeError
 import json
+import time
 
 default_headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:54.0) Gecko/20100101 Firefox/54.0',
@@ -20,13 +21,24 @@ default_headers = {
     'Upgrade-Insecure-Requests': '1',
 }
 
+def myex(e, msg):
+    largs = list(e.args)
+    if len(largs)==1 and isinstance(largs, str):
+        largs[0]= largs[0]+' '+msg
+    else:
+        largs.append(msg)
+    e.args = tuple(largs)
+    return e
 
-def get_requests(url, verify=False):
+
+def get_requests(url, verify=False, intentos=3):
     try:
         return requests.get(url, verify=verify, headers=default_headers)
-    except:
-        print(url)
-        raise
+    except Exception as e:
+        if intentos>0:
+            time.sleep(15)
+            return get_requests(url, verify=verify, intentos=intentos-1)
+        raise myex(e, 'in request.get("%s")' % url)
 
 def get_targets(url, html):
     if html and html.strip():
@@ -79,26 +91,33 @@ class WP:
         self.dom = get_dom(self.last_url or self.url)
         self.excluir = None
 
-    def get(self, path):
-        url = self.rest_route+path
+    def _json(self, url, intentos=3):
         r = get_requests(url)
         self.last_url = r.url
         try:
             js = r.json()
-        except JSONDecodeError:
-            if r.text and "[" in r.text:
+            return js
+        except JSONDecodeError as e:
+            if r.text and "[" in r.text and not r.text.strip().startswith("["):
                 error, js = r.text.split("[", 1)
                 try:
                     js = json.loads("["+js.strip())
-                    print(url, "->", error.strip())
                     return js
                 except:
                     pass
-            print(url)
-            raise
-        except:
-            print(url)
-            raise
+            if intentos>0:
+                time.sleep(15)
+                return self._json(url, intentos=intentos-1)
+            raise myex(e, 'in request.get("%s").json()' % url)
+        except Exception as e:
+            if intentos>0:
+                time.sleep(15)
+                return self._json(url, intentos=intentos-1)
+            raise myex(e, 'in request.get("%s").json()' % url)
+
+    def get(self, path):
+        url = self.rest_route+path
+        js = self._json(url)
         return js
 
     def get_object(self, tp, size=100, page=1, **kargv):
