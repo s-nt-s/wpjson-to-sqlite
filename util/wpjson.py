@@ -122,25 +122,45 @@ class WP:
 
     def get_object(self, tp, size=100, page=1, **kargv):
         url = "/wp/v2/{}/&per_page={}&page={}".format(tp, size, page)
+        if "offset" in kargv and kargv["offset"] in (None, 0):
+            del kargv["offset"]
         if kargv:
             url = url + "&" + urlencode(kargv, doseq=True)
         return self.get(url)
+
+    def safe_get_object(self, tp, size=100, page=1, **kargv):
+        try:
+            return self.get_object(tp, size=size, page=page, orderby='id', order='asc', **kargv)
+        except JSONDecodeError:
+            offset = max(((size)*(page-1)-1), 0)
+            rs=[]
+            for p in range(1, size+3):
+                try:
+                    r = self.get_object(tp, size=1, page=p, offset=offset, orderby='id', order='asc', **kargv)
+                    if isinstance(r, list) and len(r) > 0:
+                        rs.extend(r)
+                    else:
+                        return rs
+                except JSONDecodeError:
+                    pass
+            return rs
 
     def get_all_objects(self, tp, size=100, **kargv):
         if tp in ("pages", "posts") and self.excluir:
             key = "exclude" if len(self.excluir)==1 else "exclude[]"
             kargv[key]=self.excluir
-        rs = []
+        rs = {}
         page = 0
         while True:
             page = page + 1
-            r = self.get_object(tp, size=size, page=page, **kargv)
+            r = self.safe_get_object(tp, size=size, page=page, **kargv)
             if isinstance(r, list) and len(r) > 0:
-                rs.extend(r)
+                for i in r:
+                    rs[i["id"]] = i
                 if self.progress:
                     print(self.progress.format(tp, len(rs)), end="\r")
             else:
-                return sorted(rs, key=lambda x: x["id"])
+                return sorted(rs.values(), key=lambda x: x["id"])
 
     @property
     @lru_cache(maxsize=None)

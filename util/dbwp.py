@@ -68,13 +68,6 @@ class DBwp(DBLite):
             raise Exception("blog_id is None")
         return "b%d_" % blog_id
 
-    def set_blod_id(self, id):
-        if isinstance(id, str):
-            self.blog_id = self.one("select id from blogs where url=?", wp.id)
-        else:
-            self.blog_id = id
-        return self.blog_id
-
     def parse_table(self, table, blog_id=None):
         if table in self.tables or table not in self.site_tables :
             return table
