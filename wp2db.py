@@ -73,8 +73,17 @@ def main(arg):
         users = [i for i in wp.users if i["id"] in users]
         print("%5s users" % len(wp.users))
         if arg.tags:
-            print("%5s tags" % len(wp.tags))
-            tags = {i["id"]: i["name"].strip() for i in wp.tags}
+            tags = list(wp.tags)
+            t_id = set(i["id"] for i in tags)
+            falta = set()
+            for p in objects:
+                for t in p.get("tags", []):
+                    if t not in t_id:
+                        falta.add(t)
+            if falta:
+                tags = tags + wp.get_objects("tags", *falta)
+            print("%5s tags" % len(tags))
+            tags = {i["id"]: i["name"].strip() for i in tags}
         else:
             db.drop("tags")
         print("%5s categories" % len(wp.categories))

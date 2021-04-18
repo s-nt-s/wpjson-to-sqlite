@@ -1,6 +1,6 @@
 CREATE TABLE blogs (
-  ID INTEGER,
+  id INTEGER,
   name TEXT,
   url TEXT,
-  PRIMARY KEY (ID)
+  PRIMARY KEY (id)
 );

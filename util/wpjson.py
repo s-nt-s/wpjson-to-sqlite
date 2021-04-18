@@ -128,6 +128,14 @@ class WP:
             url = url + "&" + urlencode(kargv, doseq=True)
         return self.get(url)
 
+    def get_objects(self, tp, *ids):
+        r = []
+        for id in ids:
+            url = "/wp/v2/{}/{}".format(tp, id)
+            js = self.get(url)
+            r.append(js)
+        return r
+
     def safe_get_object(self, tp, size=100, page=1, **kargv):
         try:
             return self.get_object(tp, size=size, page=page, orderby='id', order='asc', **kargv)
