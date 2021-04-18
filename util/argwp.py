@@ -3,7 +3,8 @@ import re
 from socket import gaierror, gethostbyname
 from urllib.parse import urlparse
 from .wpjson import get_requests
-from json.decoder import JSONDecodeError
+from json.decoder import JSONDecodeError as JsonErro1
+from simplejson.errors import JSONDecodeError as JsonErro2
 
 
 re_url = re.compile(
@@ -56,7 +57,8 @@ class WPcheck:
             if js.get('code') == 'rest_cannot_access':
                 raise argparse.ArgumentTypeError(
                     "'{}' no permite acceso a la api wp-json [{}: {}]".format(dom, js['code'], js['message']))
-        except JSONDecodeError:
+        except (JsonErro1, JsonErro2) as e:
+            print(e)
             raise argparse.ArgumentTypeError(
-                "'{}' no es un blog wordpress o no tiene la api wp-json habilitada".format(dom))
+                "'{}' no es un blog wordpress o no tiene la api wp-json habilitada: {}".format(dom, url))
         return value
