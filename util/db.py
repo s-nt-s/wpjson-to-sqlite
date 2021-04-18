@@ -1,6 +1,7 @@
 import os
 import re
 import sqlite3
+from sqlite3 import OperationalError, InterfaceError
 from textwrap import dedent
 from PIL import Image
 
@@ -143,10 +144,9 @@ class DBLite:
             table, ', '.join(keys), ', '.join(prm))
         try:
             self.con.execute(sql, vals)
-        except sqlite3.InterfaceError:
-            print(sql)
-            print(vals)
-            raise
+        except (OperationalError, InterfaceError) as e:
+            e.args = e.args + (sql, tuple(vals))
+            raise e
         return sobra
 
     def update(self, table, **kargv):
