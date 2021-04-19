@@ -227,5 +227,33 @@ class WP:
 
     @property
     @lru_cache(maxsize=None)
+    def full_tags(self):
+        tags = list(self.tags)
+        ids = set(i["id"] for i in tags)
+        falta = set()
+        for p in self.posts + self.pages:
+            for t in p.get("tags", []):
+                if t not in ids:
+                    falta.add(t)
+        if falta:
+            tags = tags + self.get_objects("tags", *falta)
+        return tags
+
+    @property
+    @lru_cache(maxsize=None)
     def categories(self):
         return self.get_all_objects("categories")
+
+    @property
+    @lru_cache(maxsize=None)
+    def full_categories(self):
+        categories = list(self.categories)
+        ids = set(i["id"] for i in categories)
+        falta = set()
+        for p in self.posts + self.pages:
+            for t in p.get("categories", []):
+                if t not in ids:
+                    falta.add(t)
+        if falta:
+            categories = categories + self.get_objects("categories", *falta)
+        return categories

@@ -73,21 +73,12 @@ def main(arg):
         users = [i for i in wp.users if i["id"] in users]
         print("%5s users" % len(wp.users))
         if arg.tags:
-            tags = list(wp.tags)
-            t_id = set(i["id"] for i in tags)
-            falta = set()
-            for p in objects:
-                for t in p.get("tags", []):
-                    if t not in t_id:
-                        falta.add(t)
-            if falta:
-                tags = tags + wp.get_objects("tags", *falta)
-            print("%5s tags" % len(tags))
-            tags = {i["id"]: i["name"].strip() for i in tags}
+            print("%5s tags" % len(wp.full_tags))
+            tags = {i["id"]: i["name"].strip() for i in wp.full_tags}
         else:
             db.drop("tags")
-        print("%5s categories" % len(wp.categories))
-        total = len(objects) + len(users) + len(wp.categories)
+        print("%5s categories" % len(wp.full_categories))
+        total = len(objects) + len(users) + len(wp.full_categories)
         if arg.media:
             print("%5s media" % len(wp.media))
             total = total + len(wp.media)
@@ -108,7 +99,7 @@ def main(arg):
             count = count + 1
             print("Creando sqlite {0:.0f}%".format(count*100/total), end="\r")
 
-        for c in wp.categories:
+        for c in wp.full_categories:
             db.insert("categories", **c)
             count = count + 1
             print("Creando sqlite {0:.0f}%".format(count*100/total), end="\r")
