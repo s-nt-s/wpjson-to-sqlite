@@ -65,27 +65,27 @@ def main(arg):
 
         print("")
         print(wp.id)
-        print("%5s posts" % len(wp.posts))
-        print("%5s pages" % len(wp.pages))
+        print("{:>5} posts".format(len(wp.posts)))
+        print("{:>5} pages".format(len(wp.pages)))
         #print("%5s media" % len(wp.media))
         objects = sorted(wp.posts + wp.pages, key=lambda x: x["id"])
         users = set([p["author"] for p in objects])
         users = [i for i in wp.users if i["id"] in users]
-        print("%5s users" % len(wp.users))
+        print("{:>5} users".format(len(wp.users)))
         if arg.tags:
-            print("%5s tags" % len(wp.tags))
+            print("{:>5} tags".format(len(wp.tags)))
             tags = {i["id"]: i["name"].strip() for i in wp.tags}
         else:
             db.drop("tags")
-        print("%5s categories" % len(wp.categories))
+        print("{:>5} categories".format(len(wp.categories)))
         total = len(objects) + len(users) + len(wp.categories)
         if arg.media:
-            print("%5s media" % len(wp.media))
+            print("{:>5} media".format(len(wp.media)))
             total = total + len(wp.media)
         else:
             db.drop("media")
         if arg.comments:
-            print("%5s comments" % len(wp.comments))
+            print("{:>5} comments".format(len(wp.comments)))
             total = total + len(wp.comments)
         else:
             db.drop("comments")
